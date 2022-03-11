@@ -51,7 +51,14 @@ subroutine recom_sinking_new(tr_num,mesh)
         tracer_id(tr_num)==1021 ) then  !idetcal
 	   
             Vsink = VDet 
-          
+    !CN: I added the following, otherwise Vsink is not > 0.1 for second detritus!
+    elseif(tracer_id(tr_num)==1025 .or. &  !idetz2n
+               tracer_id(tr_num)==1026 .or. &  !idetz2c
+               tracer_id(tr_num)==1027 .or. &  !idetz2si
+               tracer_id(tr_num)==1028 ) then  !idetz2calc 
+ 
+            Vsink = VDet_zoo2
+
     elseif(tracer_id(tr_num)==1004 .or. &  !iphyn
         tracer_id(tr_num)==1005 .or. &  !iphyc
         tracer_id(tr_num)==1020 .or. &  !iphycal
@@ -86,21 +93,65 @@ if (Vsink .gt. 0.1) then
         do nz=nzmin,nzmax+1
 
             if (allow_var_sinking) then 
-                Wvel_flux(nz) = -((Vdet_a * abs(zbar_3d_n(nz,n))/SecondsPerDay) + Vsink/SecondsPerDay)
+                if (use_ballasting) then
+                   if (depth_scaling1.gt.0.0) then
+                      Wvel_flux(nz) = -((w_ref1*scaling_density1_3D(nz,n)*scaling_visc_3D(nz,n)/SecondsPerDay) + (depth_scaling1 * abs(zbar_3d_n(nz,n))/SecondsPerDay)) 
+                   else 
+                      Wvel_flux(nz) = -(w_ref1*scaling_density1_3D(nz,n)*scaling_visc_3D(nz,n)/SecondsPerDay) 
+                   end if
+                   if (Wvel_flux(nz).gt.max_sinking_velocity) then
+                      Wvel_flux(nz) = -(max_sinking_velocity) ! set maximum sinking speed for numerical stability
+                   endif 
+                else 
+                   Wvel_flux(nz) = -((Vdet_a * abs(zbar_3d_n(nz,n))/SecondsPerDay) + Vsink/SecondsPerDay)
+                end if
             else
                 Wvel_flux(nz) = -Vsink/SecondsPerDay
             end if
+
 !            if (REcoM_Second_Zoo) then
 ! We assume constant sinking for second detritus
             if(tracer_id(tr_num)==1025 .or. &  !idetz2n
                tracer_id(tr_num)==1026 .or. &  !idetz2c
                tracer_id(tr_num)==1027 .or. &  !idetz2si
                tracer_id(tr_num)==1028 ) then  !idetz2calc      
-               Wvel_flux(nz) = -VDet_zoo2/SecondsPerDay ! --> VDet_zoo2
-
+               if (use_ballasting) then
+                  if (depth_scaling2.gt.0.0) then
+                     Wvel_flux(nz) =  -((w_ref2*scaling_density2_3D(nz,n)*scaling_visc_3D(nz,n)/SecondsPerDay) + (depth_scaling2 * abs(zbar_3d_n(nz,n))/SecondsPerDay))
+                  else 
+                     Wvel_flux(nz) = -(w_ref2*scaling_density2_3D(nz,n)*scaling_visc_3D(nz,n)/SecondsPerDay) 
+                  end if 
+                   if (Wvel_flux(nz).gt.max_sinking_velocity) then
+                      Wvel_flux(nz) = -(max_sinking_velocity) ! set maximum sinking speed for numerical stability
+                   endif 
+               else
+                  Wvel_flux(nz) = -VDet_zoo2/SecondsPerDay ! --> VDet_zoo2
+               endif
             endif
 !            endif
         end do
+        !print*,'Wvel_flux',Wvel_flux
+
+        if (use_ballasting) then
+        ! store in array to write as diagnostic
+          if (tracer_id(tr_num)==1007 .or. &  !idetn
+          tracer_id(tr_num)==1008 .or. &  !idetc
+          tracer_id(tr_num)==1017 .or. &  !idetsi
+          tracer_id(tr_num)==1021 ) then  !idetcal
+
+            sinkVel1(:,n)=Wvel_flux(:)
+            !print*,'Wvel det1 surface:',Wvel_flux(nzmin)*SecondsPerDay
+
+          elseif(tracer_id(tr_num)==1025 .or. &  !idetz2n
+               tracer_id(tr_num)==1026 .or. &  !idetz2c
+               tracer_id(tr_num)==1027 .or. &  !idetz2si
+               tracer_id(tr_num)==1028 ) then  !idetz2calc   
+
+            sinkVel2(:,n)=Wvel_flux(:)
+            !print*,'Wvel det2 surface:',Wvel_flux(nzmin)*SecondsPerDay 
+          endif
+        endif
+        
 
         wflux = 0.d0	
         dt_sink = dt

@@ -310,6 +310,30 @@ module recom_config
 !! *** Alkalinity restoring ***
   Real(kind=8)                 :: surf_relax_Alk = 3.2e-07 !10.d0/31536000.d0
   namelist /paalkalinity_restoring/ surf_relax_Alk
+!!------------------------------------------------------------------------------
+!! *** Ballasting ***
+  Logical                      :: use_O2_in_org_matter_remin=.true. ! Note: this can be turned on/off independently of whether ballasting is used or not
+  Real(kind=8)                 :: k_o2_remin = 15.0 ! mmol m-3; Table1 in Cram2018 cites DeVries & Weber 2017 for a range of 0-30 mmol m-3
+  Logical                      :: use_ballasting = .true.
+  Logical                      :: use_density_scaling = .true.
+  Logical                      :: use_viscosity_scaling = .true.
+  Real(kind=8)                 :: rho_POC   = 1033.0 ! kg m-3; density of POC (see Table 1 in Cram et al., 2018) 
+  Real(kind=8)                 :: rho_PON   = 1033.0 ! kg m-3; density of PON (see Table 1 in Cram et al., 2018) 
+  Real(kind=8)                 :: rho_CaCO3 = 2830.0  ! kg m-3; density of CaCO3 (see Table 1 in Cram et al., 2018) 
+  Real(kind=8)                 :: rho_opal  = 2090.0  ! kg m-3; density of Opal (see Table 1 in Cram et al., 2018) 
+  Real(kind=8)                 :: rho_ref_part   = 1230.0  ! kg m-3; reference particle density (see Cram et al., 2018) 
+  Real(kind=8)                 :: rho_ref_water  = 1027.0 ! kg m-3; reference seawater density (see Cram et al., 2018) 
+  Real(kind=8)                 :: visc_ref_water  = 0.00158 ! kg m-1 s-1; reference seawater viscosity, at Temp=4 degC (see Cram et al., 2018) 
+  Real(kind=8)                 :: w_ref1  = 10.0 ! m s-1; reference sinking velocity of small detritus 
+  Real(kind=8)                 :: w_ref2  = 200.0 ! m s-1; reference sinking velocity of large detritus
+  Real(kind=8)                 :: depth_scaling1 = 0.015 ! s-1; factor to increase sinking speed of det1 with depth, set to 0 if not wanted
+  Real(kind=8)                 :: depth_scaling2 = 0.0  ! s-1; factor to increase sinking speed of det2 with depth, set to 0 if not wanted
+  Real(kind=8)                 :: max_sinking_velocity = 250.0  ! d-1; for numerical stability, set a maximum possible sinking velocity here (applies to both detritus classes)
+  namelist /ballasting/ use_O2_in_org_matter_remin,k_o2_remin,  &
+                        use_ballasting, use_density_scaling, use_viscosity_scaling,   &
+                        rho_POC, rho_PON, rho_CaCO3, rho_opal, rho_ref_part, rho_ref_water, &
+                        visc_ref_water, w_ref1, w_ref2, depth_scaling1, depth_scaling2, &
+                        max_sinking_velocity
 
 end module recom_config
 !
@@ -330,6 +354,7 @@ Module REcoM_declarations
   Real(kind=8)  :: rTref                  ! [1/K] Reciproque value of reference temp for Arrhenius function
   Real(kind=8)  :: rTloc                  ! [1/K] Reciproque of local ocean temp
   Real(kind=8)  :: arrFunc                ! []    Temp dependence of rates 
+  Real(kind=8)  :: O2Func                 ! []    O2 dependency of organic matter remin 
 !  if (REcoM_Second_Zoo) then
   Real(kind=8)  :: arrFuncZoo2           ! []    Temperature function for krill     
 !  endif
@@ -498,6 +523,13 @@ Module REcoM_GloVar
   Real(kind=8), allocatable,dimension(:)  :: relax_alk
   Real(kind=8), allocatable,dimension(:)  :: virtual_alk
   real(kind=8), allocatable,dimension(:,:)  :: PAR3D            ! Light in the water column [nl-1 n2d]
+  real(kind=8), allocatable,dimension(:,:)  :: sinkVel1            ! sinking speed of particle class 1, ballasting
+  real(kind=8), allocatable,dimension(:,:)  :: sinkVel2            ! sinking speed of particle class 2
+  real(kind=8), allocatable,dimension(:,:)  :: rho_particle1            ! density of particle class 1
+  real(kind=8), allocatable,dimension(:,:)  :: rho_particle2            ! density of particle class 2
+  real(kind=8), allocatable,dimension(:,:)  :: scaling_density1_3D      ! scaling factor
+  real(kind=8), allocatable,dimension(:,:)  :: scaling_density2_3D      ! scaling factor
+  real(kind=8), allocatable,dimension(:,:)  :: scaling_visc_3D          ! scaling factor
   real(kind=8), allocatable,dimension(:)  :: RiverineLonOrig, RiverineLatOrig, RiverineDINOrig, RiverineDONOrig, RiverineDOCOrig, RiverineDSiOrig ! Variables to save original values for riverine nutrients
   real(kind=8), allocatable,dimension(:)  :: RiverDIN2D, RiverDON2D, RiverDOC2D, RiverDSi2D, RiverAlk2D, RiverDIC2D
   real(kind=8), allocatable,dimension(:)  :: ErosionTSi2D, ErosionTON2D, ErosionTOC2D

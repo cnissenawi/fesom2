@@ -67,6 +67,15 @@ subroutine recom_init(mesh)
     allocate(GlodPCO2surf(node_size))
     allocate(GlodecayBenthos(node_size,benthos_num))
     allocate(PAR3D(nl-1,node_size))
+    !if (use_ballasting) then
+       allocate(rho_particle1(nl-1,node_size))
+       allocate(rho_particle2(nl-1,node_size))
+       allocate(sinkVel1(nl-1,node_size))
+       allocate(sinkVel2(nl-1,node_size))
+       allocate(scaling_density1_3D(nl-1,node_size))
+       allocate(scaling_density2_3D(nl-1,node_size))
+       allocate(scaling_visc_3D(nl-1,node_size))
+    !endif
     allocate(DenitBen(node_size)) 
     allocate(Benthos(node_size,benthos_num))
     allocate(LocBenthos(benthos_num))
@@ -179,6 +188,15 @@ end if
     end if  
 
     PAR3D(:,:) = 0.d0
+    !if (use_ballasting) then
+       sinkVel1(:,:) = 0.d0
+       sinkVel2(:,:) = 0.d0
+       rho_particle1(:,:) = 0.d0
+       rho_particle2(:,:) = 0.d0
+       scaling_density1_3D(:,:) = 0.d0
+       scaling_density2_3D(:,:) = 0.d0
+       scaling_visc_3D(:,:)     = 0.d0
+    !endif
     DenitBen(:) = 0.d0
 
 

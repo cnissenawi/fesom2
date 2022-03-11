@@ -52,12 +52,17 @@ subroutine recom(mesh)
   integer                    :: idiags
 
   real(kind=8)               :: Sali, net, net1, net2
-  real (kind=8), allocatable :: Temp(:),  zr(:), PAR(:)
+  real (kind=8), allocatable :: Temp(:),  zr(:), PAR(:),SaliZ(:)  ! CN: SaliZ needed for ballasting
+  real (kind=8), allocatable :: rho_det1(:),rho_det2(:)              ! CN: ballasting 
+  real (kind=8), allocatable :: scaling_density1(:),scaling_density2(:),scaling_visc(:) ! CN: ballasting 
   real(kind=8),  allocatable :: C(:,:)
   character(len=2)           :: tr_num_name
 #include "../associate_mesh.h"
 
-  allocate(Temp(nl-1), zr(nl-1) , PAR(nl-1))
+  allocate(Temp(nl-1), zr(nl-1) , PAR(nl-1),SaliZ(nl-1))
+  allocate(rho_det1(nl-1),rho_det2(nl-1)) ! CN: for ballasting
+  allocate(scaling_density1(nl-1),scaling_density2(nl-1),scaling_visc(nl-1)) ! CN: for ballasting
+  
   allocate(C(nl-1,bgc_num))
 
 
@@ -118,6 +123,8 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> bio_fluxes'
 
      !!---- Temperature in water column
      Temp(1:nzmax) = tr_arr(1:nzmax, n, 1)
+     !!---- Salinity in water column (needed for ballasting)
+     SaliZ(1:nzmax) = tr_arr(1:nzmax, n, 2)
 
      !!---- Surface salinity
      Sali = tr_arr(1,       n, 2)
@@ -130,6 +137,15 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> bio_fluxes'
 
      !!---- The PAR in the local water column is initialized
      PAR(1:nzmax) = 0.d0                                        
+
+     ! CN: diagnostics for ballasting
+     rho_det1(1:nzmax) = 0.d0
+     rho_det2(1:nzmax) = 0.d0
+     !sinkVel_det1(1:nzmax) = 0.d0
+     !sinkVel_det2(1:nzmax) = 0.d0
+     scaling_density1(1:nzmax) = 0.d0
+     scaling_density2(1:nzmax) = 0.d0
+     scaling_visc(1:nzmax) = 0.d0
 
      !!---- a_ice(row): Ice concentration in the local node
      FeDust = GloFeDust(n) * (1 - a_ice(n)) * dust_sol    
@@ -144,7 +160,9 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_Forci
 ! ======================================================================================
 !******************************** RECOM FORCING ****************************************
 
-     call REcoM_Forcing(zr, n, nzmax, C, SW, Loc_slp, Temp, Sali, PAR, mesh)
+!     call REcoM_Forcing(zr, n, nzmax, C, SW, Loc_slp, Temp, Sali, PAR, mesh)
+     call REcoM_Forcing(zr, n, nzmax, C, SW, Loc_slp, Temp, Sali,SaliZ,PAR,rho_det1,rho_det2,scaling_density1,scaling_density2,scaling_visc,mesh) ! CN: ballasting
+     ! CN: do I need to have rho_det1... as arguments of the function???
 
      tr_arr(1:nzmax, n, 3:num_tracers)       = C(1:nzmax, 1:bgc_num)
      Gloaddtiny(1:nzmax, n, 1:benthos_num*2) = addtiny(1:nzmax, 1:benthos_num*2)
@@ -177,7 +195,17 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_Forci
 !     GlowFluxDia(n, 1:benthos_num  )= wFluxDia(1:benthos_num  )/SecondsPerDay  ! convert from [mmol/m2/d] to [mmol/m2/s] 
 
      PAR3D(1:nzmax,n)             = PAR(1:nzmax) !     PAR3D(inds(1:nn))   = PAR(1:nn)
-   
+
+     ! CN: ballasting
+     ! rho_det1,rho_det2,sinkVel_det1,sinkVel_det2
+     rho_particle1(1:nzmax,n)    = rho_det1(1:nzmax)
+     rho_particle2(1:nzmax,n)    = rho_det2(1:nzmax)
+     !sinkVel1(1:nzmax,n)         = sinkVel_det1(1:nzmax)
+     !sinkVel2(1:nzmax,n)         = sinkVel_det2(1:nzmax)
+     scaling_density1_3D(1:nzmax,n) = scaling_density1(1:nzmax)
+     scaling_density2_3D(1:nzmax,n) = scaling_density2(1:nzmax)
+     scaling_visc_3D(1:nzmax,n)     = scaling_visc(1:nzmax)
+ 
      do idiags = 1,diags3d_num
        Diags3D(1:nzmax,n,idiags)  = Diags3Dloc(1:nzmax,idiags) ! 1=NPPnano, 2=NPPdia
      end do

@@ -118,6 +118,7 @@ subroutine read_namelist
   read (20,NML=pabenthos_decay_rate)
   read (20,NML=paco2_flux_param)
   read (20,NML=paalkalinity_restoring)
+  read (20,NML=ballasting)
   read (20,NML=paciso)
   close (20)
 #endif

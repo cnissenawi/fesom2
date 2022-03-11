@@ -432,6 +432,26 @@ CASE ('salt      ')
     call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'salt',      'salinity',    'psu',    tr_arr(:,:,2),             io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
 CASE ('PAR       ')
     call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'PAR', 'PAR', 'W/m2',      PAR3D(:,:),             io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+!___________________________________________________________________________________________________________________________________
+! output RECOM 3D  
+! ballasting: rho_particle class 1, rho_particle class 2, sinking speed detritus
+! class 1, sinking speed detritus class 2 
+#if defined(__recom)
+CASE ('rho_det1       ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'rho_det1', 'rho of particles in class 1', 'kg/m3',  rho_particle1(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('rho_det2       ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'rho_det2', 'rho of particles in class 2', 'kg/m3',  rho_particle2(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('w_sinking_det1       ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'w_sinking_det1', 'sinking speed of particles in class 1', 'm s-1',  sinkVel1(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('w_sinking_det2       ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'w_sinking_det2', 'sinking speed of particles in class 2', 'm s-1',  sinkVel2(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('scaling_rho_1   ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'scaling_rho_1', 'scaling factor for sinking of particles in class 1', 'n.d.',  scaling_density1_3D(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('scaling_rho_2   ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'scaling_rho_2', 'scaling factor for sinking of particles in class 2', 'n.d.',  scaling_density2_3D(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+CASE ('scaling_visc   ')
+    call def_stream((/nl-1, nod2D/),  (/nl-1, myDim_nod2D/),  'scaling_visc', 'scaling factor of particle sinking speed', 'n.d.',  scaling_visc_3D(:,:), io_list(i)%freq, io_list(i)%unit, io_list(i)%precision, mesh)
+#endif
 CASE ('otracers  ')
     do j=3, num_tracers
     write (id_string, "(I4.4)") tracer_id(j)

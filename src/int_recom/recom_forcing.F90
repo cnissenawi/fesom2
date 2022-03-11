@@ -1,7 +1,8 @@
 !===============================================================================
 ! REcoM_Forcing
 !===============================================================================
-subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, PAR, mesh)
+!subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, PAR, mesh)
+subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp,Sali,SaliZ, PAR, rho_det1,rho_det2,scaling_density1,scaling_density2,scaling_visc, mesh) !CN:ballasting
 
   use REcoM_declarations
   use REcoM_LocVar
@@ -37,6 +38,12 @@ subroutine REcoM_Forcing(zNodes, n, Nn, state, SurfSW, Loc_slp, Temp, Sali, PAR,
 
   Real(kind=8),dimension(mesh%nl-1)         :: Temp          ! [degrees C] Ocean temperature
   real(kind=8),dimension(mesh%nl-1)         :: PAR
+  real(kind=8),dimension(mesh%nl-1)         :: rho_det1 ! CN: ballasting
+  real(kind=8),dimension(mesh%nl-1)         :: rho_det2
+  real(kind=8),dimension(mesh%nl-1)         :: scaling_density1
+  real(kind=8),dimension(mesh%nl-1)         :: scaling_density2
+  real(kind=8),dimension(mesh%nl-1)         :: scaling_visc
+  real(kind=8),dimension(mesh%nl-1)         :: SaliZ ! CN: ballasting
 
 ! Subroutine Depth
 
@@ -170,7 +177,8 @@ if (recom_debug .and. mype==0) print *, achar(27)//'[36m'//'     --> REcoM_sms'/
 !  addtiny(1:nn,3) = state(1:nn,idiasi)
 !  addtiny(1:nn,4) = state(1:nn,idetz2si)
 
-  call REcoM_sms(n, Nn, state, thick, recipthick, SurfSW, sms, Temp, SinkVel, zF, PAR, mesh)
+!  call REcoM_sms(n, Nn, state, thick, recipthick, SurfSW, sms, Temp, SinkVel, zF, PAR, mesh)
+   call REcoM_sms(n, Nn, state, thick, recipthick, SurfSW, sms, Temp, SaliZ,Lond,Latd,SinkVel, zF, PAR,rho_det1,rho_det2,scaling_density1,scaling_density2,scaling_visc,mesh) !CN: ballasting
 
 !  addtiny(1:nn,1) = (state(1:nn,isi)           - aux(1:nn,isi))
 !  addtiny(1:nn,2) = (state(1:nn,idetsi)        - aux(1:nn,idetsi))

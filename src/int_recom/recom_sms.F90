@@ -1,4 +1,5 @@
-subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR, mesh)
+!subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR, mesh)
+subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SaliZ,Lond,Latd,SinkVel,zF,PAR,rho_det1,rho_det2,scaling_density1,scaling_density2,scaling_visc,mesh) ! CN: for ballasting
 
     use REcoM_declarations
     use REcoM_LocVar
@@ -20,6 +21,8 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
     use i_therm_param
     use g_comm
     use g_support
+    use mdepth2press
+    use gsw_mod_toolbox, only: gsw_sa_from_sp,gsw_ct_from_pt,gsw_rho  ! for ballasting
 
     implicit none
     type(t_mesh), intent(in) , target                       :: mesh
@@ -33,16 +36,31 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
 
     real(kind=8),dimension(mesh%nl-1,bgc_num),intent(inout) :: sms                  !< Source-Minus-Sinks term
     real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: Temp                 !< [degrees C] Ocean temperature
+    real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: SaliZ                !< [psu] Salinity
     real(kind=8),dimension(mesh%nl,4)        ,intent(in)    :: SinkVel
 
     real(kind=8),dimension(mesh%nl),intent(in)              :: zF                   !< [m] Depth of fluxes
     real(kind=8),dimension(mesh%nl-1),intent(inout)         :: PAR
+    real(kind=8),dimension(mesh%nl-1),intent(inout)         :: rho_det1 ! ballasting: to be written as output
+    real(kind=8),dimension(mesh%nl-1),intent(inout)         :: rho_det2
+    real(kind=8),dimension(mesh%nl-1),intent(inout)         :: scaling_density1 !< [n.d.] scaling with density of particle class 1 -> to be passed to FESOM
+    real(kind=8),dimension(mesh%nl-1),intent(inout)         :: scaling_density2 !< [n.d.] scaling with density of particle class 2 -> to be passed to FESOM
+    real(kind=8),dimension(mesh%nl-1),intent(inout)         :: scaling_visc !< [n.d.] scaling with viscosity -> to be passed to FESOM
 
     real(kind=8)                                            :: net                  
+    real(kind=8),intent(in)                                 :: Latd(1)   ! latitude in degree
+    real(kind=8),intent(in)                                 :: Lond(1)   ! longitude in degree
+    real(kind=8)                                            :: depth_pos(1)   ! pos. depth -> for ballasting
+    real(kind=8)                                            :: pres(1)    ! local pressure
+    real(kind=8)                                            :: sa(1)      ! local absolute salinity
+    real(kind=8)                                            :: ct(1)      ! local conservative temperature
+    real(kind=8)                                            :: rho_seawater(1)    ! local seawater density
 
     real(kind=8)                                            :: dt_d                 !< Size of time steps [day]
     real(kind=8)                                            :: dt_b                 !< Size of time steps [day]
     real(kind=8),dimension(mesh%nl-1)                       :: Sink
+    real(kind=8),dimension(mesh%nl-1)                       :: seawater_visc  !< [kg m-1 s-1] Ocean viscosity
+    real(kind=8),dimension(mesh%nl-1)                       :: rho_particle   !< [kg m-3] Particle density
     real(kind=8)                                            :: dt_sink              !< Size of local time step
     real(kind=8)                                            :: Fc                   !< Flux of labile C into sediment, used for denitrification calculation [umolC/cm2/s]
     real(kind=8)                                            :: recip_hetN_plus      !< MB's addition to heterotrophic respiration
@@ -247,6 +265,12 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
 
     rTloc   = real(one)/(Temp(k) + C2K)
     arrFunc = exp(-Ae * ( rTloc - rTref))
+    ! CN: add option for O2 dependency of organic matter remineralization
+    if (use_O2_in_org_matter_remin) then
+       O2Func = O2/(k_o2_remin + O2) ! factor between 0-1
+    else    
+       O2Func = 1.0 ! in this case, remin. rates only depend on temperature
+    endif
 
     if (REcoM_Second_Zoo) then 
         arrFuncZoo2 = exp(t1_zoo2/t2_zoo2 - t1_zoo2*rTloc)/(1 + exp(t3_zoo2/t4_zoo2 - t3_zoo2*rTloc))
@@ -789,7 +813,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
     sms(k,idin)      = (                       &
         - N_assim                      * PhyC    &  ! --> N assimilation Nanophytoplankton, [mmol N/(mmol C * day)] C specific N utilization rate
         - N_assim_Dia                  * DiaC    &  ! --> N assimilation Diatoms
-        + rho_N * arrFunc              * DON     &  ! --> DON remineralization, temperature dependent [day^-1 * mmol/m3]       
+        + rho_N * arrFunc * O2Func     * DON     &  ! --> DON remineralization, temperature and (optionally) oxygen dependent [day^-1 * mmol/m3]       
 !        + LocRiverDIN                            & ! --> added in FESOM2 
                                              ) * dt_b + sms(k,idin)  
 
@@ -804,7 +828,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
             + phyRespRate                   * PhyC       & ! --> Small pyhtoplankton respiration 
             - Cphot_Dia                     * DiaC       & ! --> Diatom photosynthesis 
             + phyRespRate_Dia               * DiaC       & ! --> Diatom respiration
-            + rho_C1 * arrFunc              * EOC        & ! --> Remineralization of DOC
+            + rho_C1 * arrFunc *O2Func      * EOC        & ! --> Remineralization of DOC
             + HetRespFlux                                & ! --> Zooplankton respiration                     
             + Zoo2RespFlux                               &                    
             + calc_diss                     * DetCalc    & ! --> Calcite dissolution from detritus 
@@ -820,7 +844,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
             + phyRespRate                   * PhyC    &
             - Cphot_Dia                     * DiaC    &
             + phyRespRate_Dia               * DiaC    &
-            + rho_C1 * arrFunc              * EOC     &
+            + rho_C1 * arrFunc * O2Func     * EOC     &
             + HetRespFlux                             & 
 !#ifdef REcoM_calcification                     
             + calc_diss                     * DetCalc &
@@ -855,7 +879,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         sms(k,ialk)      = (                       &
             + 1.0625 * N_assim             * PhyC    &
             + 1.0625 * N_assim_Dia         * DiaC    &
-            - 1.0625 * rho_N * arrFunc     * DON     &
+            - 1.0625 * rho_N * arrFunc * O2Func * DON     &
 !#ifdef REcoM_calcification     
             + 2.d0 * calc_diss             * DetCalc &
             + 2.d0 * calc_loss_gra * calc_diss_guts  &
@@ -868,7 +892,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         sms(k,ialk)      = (                       &
             + 1.0625 * N_assim             * PhyC    &
             + 1.0625 * N_assim_Dia         * DiaC    &
-            - 1.0625 * rho_N * arrFunc     * DON     &
+            - 1.0625 * rho_N * arrFunc * O2Func * DON     &
 !#ifdef REcoM_calcification
             + 2.d0 * calc_diss             * DetCalc &
             + 2.d0 * calc_loss_gra * calc_diss_guts  &
@@ -1021,7 +1045,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         + aggregationRate              * PhyN    &
         + aggregationRate              * DiaN    &
         + hetLossFlux                            &
-        - reminN * arrFunc             * DetN    &
+        - reminN * arrFunc*O2Func      * DetN    &
                                                ) * dt_b + sms(k,idetn)
    else
     sms(k,idetn)       = (                       &
@@ -1031,7 +1055,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         + aggregationRate              * PhyN    &
         + aggregationRate              * DiaN    &
         + hetLossFlux                            &
-        - reminN * arrFunc             * DetN    &
+        - reminN * arrFunc*O2Func      * DetN    &
                                                ) * dt_b + sms(k,idetn)
    end if   
 !-------------------------------------------------------------------------------
@@ -1047,7 +1071,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         + aggregationRate              * phyC          &
         + aggregationRate              * DiaC          &
         + hetLossFlux * recipQZoo                      &
-        - reminC * arrFunc             * DetC          &
+        - reminC * arrFunc*O2Func      * DetC          &
                                              )   * dt_b + sms(k,idetc)
    else
     sms(k,idetc)       = (                             &
@@ -1058,7 +1082,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         + aggregationRate              * phyC          &
         + aggregationRate              * DiaC          &
         + hetLossFlux * recipQZoo                      &
-        - reminC * arrFunc             * DetC          &
+        - reminC * arrFunc*O2Func      * DetC          &
                                              )   * dt_b + sms(k,idetc)
    end if
 !____________________________________________________________
@@ -1161,7 +1185,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
          - grazingFlux_DetZ22 * grazEff2          &   
          + Zoo2LossFlux                           &
          + Zoo2fecalloss_n                          &
-         - reminN * arrFunc             * DetZ2N  &
+         - reminN * arrFunc *O2Func      * DetZ2N  &
                                                ) * dt_b + sms(k,idetz2n)
      else
       sms(k,idetz2n)       = (                       &
@@ -1171,7 +1195,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
          - grazingFlux2 * grazEff2                &
          + Zoo2LossFlux                           &
          + Zoo2fecalloss_n                          &
-         - reminN * arrFunc             * DetZ2N  &
+         - reminN * arrFunc *O2Func      * DetZ2N  &
                                                ) * dt_b + sms(k,idetz2n)
      end if
  !---------------------------------------------------------------------------------                                                                                            
@@ -1189,7 +1213,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         - grazingFlux_DetZ22 * recipDet2 * grazEff2    &
         + Zoo2LossFlux * recipQZoo2                    &
         + Zoo2fecalloss_c                   & 
-        - reminC * arrFunc             * DetZ2C          &
+        - reminC * arrFunc *O2Func      * DetZ2C          &
                                              )   * dt_b + sms(k,idetz2c)
      else
       sms(k,idetz2c)       = (                             &
@@ -1201,7 +1225,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
         - grazingFlux_het2 * recipQZoo * grazEff2      &
         + Zoo2LossFlux * recipQZoo2                    &
         + Zoo2fecalloss_c                    &
-        - reminC * arrFunc             * DetZ2C          &
+        - reminC * arrFunc *O2Func      * DetZ2C          &
                                              )   * dt_b + sms(k,idetz2c)
      end if
 
@@ -1225,11 +1249,11 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
     sms(k,idon)      = (                        &
       + lossN * limitFacN              * phyN   &
       + lossN_d * limitFacN_Dia        * DiaN   &
-      + reminN * arrFunc               * DetN   &
-      + reminN * arrFunc               * DetZ2N &
+      + reminN * arrFunc * O2Func       * DetN   &
+      + reminN * arrFunc * O2Func       * DetZ2N &
       + lossN_z                        * HetN   &
       + lossN_z2                       * Zoo2N  &
-      - rho_N * arrFunc                * DON    &
+      - rho_N * arrFunc * O2Func       * DON    & ! CN: note that test runs 9-11 did not have O2 dependence here
 !      + LocRiverDON                             &
                                              ) * dt_b + sms(k,idon)
    else
@@ -1237,9 +1261,9 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
     sms(k,idon)      = (                        &
       + lossN * limitFacN              * phyN   &
       + lossN_d * limitFacN_Dia        * DiaN   &
-      + reminN * arrFunc               * DetN   &
+      + reminN * arrFunc * O2Func      * DetN   &
       + lossN_z                        * HetN   &
-      - rho_N * arrFunc                * DON    &
+      - rho_N * arrFunc * O2Func       * DON    &
 !      + LocRiverDON                             &
                                               ) * dt_b + sms(k,idon)
    endif
@@ -1249,20 +1273,20 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
     sms(k,idoc)       = (                       &
       + lossC * limitFacN              * phyC   &
       + lossC_d * limitFacN_dia        * DiaC   &
-      + reminC * arrFunc               * DetC   &
-      + reminC * arrFunc               * DetZ2C &
+      + reminC * arrFunc * O2Func      * DetC   &
+      + reminC * arrFunc * O2Func       * DetZ2C &
       + lossC_z                        * HetC   &
       + lossC_z2                       * Zoo2C  &
-      - rho_c1 * arrFunc               * EOC    &
+      - rho_c1 * arrFunc * O2Func       * EOC    &
 !      + LocRiverDOC                             &
                                               ) * dt_b + sms(k,idoc)	
    else 
     sms(k,idoc)       = (                       &
       + lossC * limitFacN              * phyC   &
       + lossC_d * limitFacN_dia        * DiaC   &
-      + reminC * arrFunc               * DetC   &
+      + reminC * arrFunc * O2Func       * DetC   &
       + lossC_z                        * HetC   &
-      - rho_c1 * arrFunc               * EOC    &
+      - rho_c1 * arrFunc * O2Func      * EOC    &
 !      + LocRiverDOC                             &
                                               ) * dt_b + sms(k,idoc)
    endif 		
@@ -1432,8 +1456,8 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
                 - N_assim_dia             * DiaC     & ! --> N assimilation Diatom
                 + lossN*limitFacN         * PhyN     & ! --> Excretion from small pythoplankton
                 + lossN_d*limitFacN_dia   * DiaN     & ! --> Excretion from diatom
-                + reminN * arrFunc        * DetN     & ! --> Remineralization of detritus
-                + reminN * arrFunc        * DetZ2N   &
+                + reminN * arrFunc*O2Func * DetN     & ! --> Remineralization of detritus
+                + reminN * arrFunc*O2Func * DetZ2N   &
                 + lossN_z                 * HetN     & ! --> Excretion from zooplanton
                 + lossN_z2                * Zoo2N    &         
                                                )     &
@@ -1448,8 +1472,8 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
                 +  phyRespRate_dia        * DiaC     & ! Diatom respiration
                 +  lossC*limitFacN        * phyC     & ! Exrcetion from small pythoplankton
                 +  lossC_d*limitFacN_dia  * diaC     & ! Excretion from diatom
-                +  reminC * arrFunc       * detC     & ! Remineralization of detritus
-                +  reminC * arrFunc       * DetZ2C   &
+                +  reminC * arrFunc * O2Func * detC     & ! Remineralization of detritus
+                +  reminC * arrFunc * O2Func * DetZ2C   &
                 +  lossC_z                * hetC     & ! Excretion from zooplanton
                 +  hetRespFlux                       & ! Zooplankton respiration
                 +  lossC_z2               * Zoo2C    &
@@ -1467,7 +1491,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
                 - N_assim_dia             * DiaC      &
                 + lossN*limitFacN         * PhyN      &
                 + lossN_d*limitFacN_dia   * DiaN      &
-                + reminN * arrFunc        * DetN      &
+                + reminN * arrFunc * O2Func * DetN      &
                 + lossN_z                 * HetN )    &
                 - kScavFe                 * DetC * FreeFe &
                                               ) * dt_b + sms(k,ife)
@@ -1479,7 +1503,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
                 +  phyRespRate_dia        * DiaC     &
                 +  lossC*limitFacN        * phyC     &
                 +  lossC_d*limitFacN_dia  * diaC     &
-                +  reminC * arrFunc       * detC     &
+                +  reminC * arrFunc * O2Func * detC     &
                 +  lossC_z                * hetC     &
                 +  hetRespFlux  )                    &
                 -  kScavFe                * DetC * FreeFe   & 
@@ -1528,7 +1552,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
       - phyRespRate         * phyC  &
       + Cphot_dia          * diaC  &
       - phyRespRate_dia     * diaC  &
-      - rho_C1  * arrFunc   * EOC   &
+      - rho_C1  * arrFunc * O2Func  * EOC   &
       - hetRespFlux                 &
       - Zoo2RespFlux                 &
                                         )*redO2C * dt_b + sms(k,ioxy)  
@@ -1538,7 +1562,7 @@ subroutine REcoM_sms(n,Nn,state,thick,recipthick,SurfSR,sms,Temp,SinkVel,zF,PAR,
       - phyRespRate         * phyC  &
       + Cphot_dia          * diaC  &
       - phyRespRate_dia     * diaC  &
-      - rho_C1  * arrFunc   * EOC   &
+      - rho_C1  * arrFunc * O2Func * EOC   &
       - hetRespFlux                 &
                                       )*redO2C * dt_b + sms(k,ioxy)
    endif
@@ -1850,6 +1874,105 @@ endif
 
   dt_sink = dt_b * real(biostep)
 
+  ! CN: for ballasting, calculate scaling factors here and pass them to FESOM,
+  ! where sinking velocities are calculated
+  if (use_ballasting) then
+     !------------
+      !  If ballasting is used, sinking velocities are a function
+      !  of a) particle composition (=density), b) sea water viscosity, c) depth
+      !  (currently for small detritus only), and d) a constant
+      !  reference sinking speed
+      !------------
+      !##########
+      ! small detritus         
+      !##########
+       ! get seawater viscosity & particle density (used to scale sinking velocity)
+       call get_seawater_viscosity(mesh,Nn,Temp,seawater_visc)
+       call get_particle_density(mesh,Nn,state(:,idetc),state(:,idetN),state(:,idetsi),state(:,idetcal),rho_particle) ! rho_particle = density of particle class 1       
+
+       rho_det1(1:Nn)=rho_particle ! store in array to write as diagnostic
+       !print*,'rho det1:',rho_det1(1:Nn)
+
+       if (REcoM_Second_Zoo) then
+         !##########
+         ! large detritus         
+         !##########
+         ! get particle density (used to scale sinking velocity; seawater viscosity has been calculated above)
+         call get_particle_density(mesh,Nn,state(:,idetz2c),state(:,idetz2n),state(:,idetz2si),state(:,idetz2calc),rho_particle) ! rho_particle = density of particle class 2       
+
+         rho_det2(1:Nn)=rho_particle ! store in array to write as diagnostic
+         if(rho_det2(1) /= rho_det2(1)) then
+            print*,'rho_det2,idetz2c,idetz2n,idetz2si,idetz2calc:',rho_det2(1),state(1,idetz2c),state(1,idetz2n),state(1,idetz2si),state(1,idetz2calc)
+         end if
+       end if
+
+       ! get scaling vectors -> these need to be passed to FESOM to get sinking
+       ! velocities!
+       do k = one,Nn ! vertical loop
+
+          depth_pos(1)=-1*zF(k) ! zF is negative downwards
+          !print*,depth_pos(1)
+
+          ! get local seawater density
+          call depth2press(depth_pos, Latd(1), pres, 1)  ! pres is output of function,1=number of records
+          sa=gsw_sa_from_sp(SaliZ(k), pres, Lond(1), Latd(1))
+          ct=gsw_ct_from_pt(sa, Temp(k))
+          rho_seawater = gsw_rho(sa, ct, pres)
+          !if (k==1) then
+          !    !print*,'rho_seawater, depth_pos',rho_seawater,depth_pos(1)
+          !    print*,'SaliZ(k), sa',SaliZ(k),sa
+          !endif
+
+          ! scale sinking velocities with particle density (=ballasting)
+          if (use_density_scaling) then
+              if (state(k,idetc)>0.001) then ! only apply ballasting above a certain biomass
+                  scaling_density1(k) = (rho_det1(k)-rho_seawater(1))/(rho_ref_part-rho_ref_water)
+              else
+                  scaling_density1(k)=1.0
+              endif
+              if (REcoM_Second_Zoo) then
+                  if (state(k,idetz2c)>0.001) then ! only apply ballasting above a certain biomass
+                     scaling_density2(k) = (rho_det2(k)-rho_seawater(1))/(rho_ref_part-rho_ref_water)
+                  else
+                     scaling_density2(k)=1.0
+                  endif
+              endif
+          else
+              scaling_density1(k)=1.0
+              scaling_density2(k)=1.0
+          endif
+          ! CN: In the unlikely (if possible at all...) case that
+          ! rho_particle(k)-rho_seawater(1)<0, prevent the scalaing factor from
+          ! being negative. 
+          if (scaling_density1(k).lt.0.0) then
+              scaling_density1(k)=1.0
+          endif
+          if (REcoM_Second_Zoo) then
+              if (scaling_density2(k).lt.0.0) then
+                  scaling_density2(k)=1.0
+              endif
+          endif
+         ! if (scaling_density1(k).gt.3.0) then
+         !     print*,'rho scaling 1 >3.0'
+         ! endif
+         ! if (scaling_density2(k).gt.3.0) then
+         !     print*,'rho scaling 2 >3.0'
+         ! endif
+          ! scale sinking velocities with seawater viscosity
+          if (use_viscosity_scaling) then
+              if (seawater_visc(k)==0) then
+                 scaling_visc(k)=1.0
+              else
+                 scaling_visc(k)= visc_ref_water/seawater_visc(k)
+              end if
+          else
+              scaling_visc(k)=1.0
+          end if
+       end do
+
+  end if  ! use_ballasting
+
+
 if (0) then	
 !  dt = dt_s / SecondsPerDay ! Physics time step converted to [day] as sinking velocity is in [m/day]
 
@@ -1886,34 +2009,36 @@ if (0) then
 !
   end if		
 
+
   if (VDet .gt. 0.1) then
-    call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetn),sink,zF, mesh)
-    sms(1:Nn,idetn) = sms(1:Nn,idetn) + sink(1:Nn)
 
-    call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetc),sink,zF, mesh)
-    sms(1:Nn,idetc) = sms(1:Nn,idetc) + sink(1:Nn)	
+      call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetn),sink,zF, mesh)
+      sms(1:Nn,idetn) = sms(1:Nn,idetn) + sink(1:Nn)
 
-    call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetsi),sink,zF, mesh)
-    sms(1:Nn,idetsi) = sms(1:Nn,idetsi) + sink(1:Nn)
+      call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetc),sink,zF, mesh)
+      sms(1:Nn,idetc) = sms(1:Nn,idetc) + sink(1:Nn)	
+
+      call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetsi),sink,zF, mesh)
+      sms(1:Nn,idetsi) = sms(1:Nn,idetsi) + sink(1:Nn)
 
 !#ifdef REcoM_calcification
-    call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetcal),sink,zF, mesh)
-    sms(1:Nn,idetcal) = sms(1:Nn,idetcal) + sink(1:Nn)
+      call REcoM_sinking(dt_sink,Nn,SinkVel(:,ivdet),thick,recipthick,state(:,idetcal),sink,zF, mesh)
+      sms(1:Nn,idetcal) = sms(1:Nn,idetcal) + sink(1:Nn)
 !#endif
 
-   if (REcoM_Second_Zoo) then
-    call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2n),sink,zF, mesh)
-    sms(1:Nn,idetz2n) = sms(1:Nn,idetz2n) + sink(1:Nn)
+     if (REcoM_Second_Zoo) then
+      call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2n),sink,zF, mesh)
+      sms(1:Nn,idetz2n) = sms(1:Nn,idetz2n) + sink(1:Nn)
 
-    call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2c),sink,zF, mesh)
-    sms(1:Nn,idetz2c) = sms(1:Nn,idetz2c) + sink(1:Nn)
+      call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2c),sink,zF, mesh)
+      sms(1:Nn,idetz2c) = sms(1:Nn,idetz2c) + sink(1:Nn)
 
-    call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2si),sink,zF, mesh)
-    sms(1:Nn,idetz2si) = sms(1:Nn,idetz2si) + sink(1:Nn)
+      call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2si),sink,zF, mesh)
+      sms(1:Nn,idetz2si) = sms(1:Nn,idetz2si) + sink(1:Nn)
 
-    call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2calc),sink,zF, mesh)
-    sms(1:Nn,idetz2calc) = sms(1:Nn,idetz2calc) + sink(1:Nn)
-   end if
+      call REcoM_sinking2(dt_sink,Nn,SinkVel(:,ivdetsc),thick,recipthick,state(:,idetz2calc),sink,zF, mesh)
+      sms(1:Nn,idetz2calc) = sms(1:Nn,idetz2calc) + sink(1:Nn)
+     end if
 
   end if		
   if (ciso) then
@@ -1969,10 +2094,10 @@ if (0) then
 !   endif
  if (REcoM_Second_Zoo) then
   if (allow_var_sinking) then
-    Vben_det = Vdet_a * abs(zF(Nn)) + VDet
-    Vben_det_seczoo = VDet_zoo2
-    Vben_phy = Vdet_a * abs(zF(Nn)) + VPhy
-    Vben_dia = Vdet_a * abs(zF(Nn)) + VDia
+      Vben_det = Vdet_a * abs(zF(Nn)) + VDet
+      Vben_det_seczoo = VDet_zoo2
+      Vben_phy = Vdet_a * abs(zF(Nn)) + VPhy
+      Vben_dia = Vdet_a * abs(zF(Nn)) + VDia
   else
     Vben_det = VDet
     Vben_det_seczoo = VDet_zoo2
@@ -2502,3 +2627,94 @@ subroutine REcoM_sinking2(dt, Nn, wF, dzF, recipDzF, C, sink, zF, mesh)
   sink(k)    = -(wflux-wfluxkp1)*recipDzF(k)*dt
 	
 end subroutine REcoM_sinking2
+!===============================================================================
+! calculate density of particle depending on composition
+!   detC, detOpal, detCaCO3
+! based on Cram et al. (2018)
+!===============================================================================
+subroutine get_particle_density(mesh,Nn,conc_detC,conc_detN,conc_detSi,conc_detCaCO3,rho_particle)
+
+  use recom_config
+  use g_PARSUP
+  use mod_MESH
+
+  implicit none
+
+  type(t_mesh), intent(in), target  :: mesh
+  integer, intent(in)                                     :: Nn !< Total number of nodes in the vertical
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: conc_detC     ! [mmol m-3] detritus carbon
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: conc_detN     ! [mmol m-3] detritus nitrogen
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: conc_detSi    ! [mmol m-3] detritus Si
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: conc_detCaCO3 ! [mmol m-3] detritus CaCO3
+
+  real(kind=8),dimension(mesh%nl-1)                       :: rho_particle  ! [kg m-3] particle density
+  integer                                                 :: k
+  real(kind=8)                        :: a1  ! [n.d.] fraction of carbon in detritus class
+  real(kind=8)                        :: a2  ! [n.d.] fraction of nitrogen in detritus class
+  real(kind=8)                        :: a3  ! [n.d.] fraction of Opal in detritus class
+  real(kind=8)                        :: a4  ! [n.d.] fraction of CaCO3 in detritus class
+  real(kind=8)                        :: b1
+  real(kind=8)                        :: b2
+  real(kind=8)                        :: b3
+  real(kind=8)                        :: b4
+
+  rho_particle=0.0
+  do k = one,Nn
+     ! check for zeros (to avoid division by zero)
+     b1 = max(tiny,conc_detC(k))
+     b2 = max(tiny,conc_detN(k))
+     b3 = max(tiny,conc_detSi(k))
+     b4 = max(tiny,conc_detCaCO3(k))
+     a1 = b1/(b1+b2+b3+b4) 
+     a2 = b2/(b1+b2+b3+b4) 
+     a3 = b3/(b1+b2+b3+b4) 
+     a4 = b4/(b1+b2+b3+b4) 
+     !a1=(conc_detC(k))/(conc_detC(k)+conc_detN(k)+conc_detSi(k)+conc_detCaCO3(k))
+     !a2=(conc_detN(k))/(conc_detC(k)+conc_detN(k)+conc_detSi(k)+conc_detCaCO3(k))
+     !a3=(conc_detSi(k))/(conc_detC(k)+conc_detN(k)+conc_detSi(k)+conc_detCaCO3(k))
+     !a4=(conc_detCaCO3(k))/(conc_detC(k)+conc_detN(k)+conc_detSi(k)+conc_detCaCO3(k))
+     rho_particle(k) = rho_CaCO3*a4 + rho_opal*a3 + rho_POC*a1 + rho_PON*a2
+   !  if (k==5) then
+    !    print*,'k==5:'
+    !    print*,'conc_detC(5)',conc_detC(5)
+    !    print*,'conc_detN(5)',conc_detN(5)
+    !    print*,'conc_detSi(5)',conc_detSi(5)
+    !    print*,'conc_detCaCO3(5)',conc_detCaCO3(5)
+    !    print*,'a1',a1
+    !    print*,'a2',a2
+    !    print*,'a3',a3
+    !    print*,'a4',a4
+   !     print*,'rho_particle(5)',rho_particle(5)
+   !  endif 
+  end do
+
+end subroutine get_particle_density
+!===============================================================================
+!===============================================================================
+! approximate seawater viscosity with current temperature (neglecting salinity
+! effects, which are much smaller than those of temperature)
+! based on Cram et al. (2018)
+! https://bitbucket.org/ohnoplus/ballasted-sinking/src/master/tools/waterviscosity.m
+!===============================================================================
+subroutine get_seawater_viscosity(mesh,Nn,Temp,seawater_visc)
+
+  use recom_config
+  use g_PARSUP
+  use mod_MESH
+
+  implicit none
+
+  type(t_mesh), intent(in), target  :: mesh
+  integer, intent(in)                                     :: Nn !< Total number of nodes in the vertical
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: Temp !< [degrees C] Ocean temperature
+
+  real(kind=8),dimension(mesh%nl-1)                       :: seawater_visc !<[kg m-1 s-1] Ocean viscosity
+  integer                                                 :: k
+
+  seawater_visc=0.0
+  do k = one,Nn
+     seawater_visc(k) = 2.414e-5*(10.0**(248.8/(Temp(k)+133.0)))
+  end do
+
+end subroutine get_seawater_viscosity
+!===============================================================================
