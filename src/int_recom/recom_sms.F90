@@ -2809,7 +2809,7 @@ endif
       ! small detritus         
       !##########
        ! get seawater viscosity & particle density (used to scale sinking velocity)
-       call get_seawater_viscosity(mesh,Nn,Temp,seawater_visc)
+       call get_seawater_viscosity(mesh,Nn,Temp,SaliZ,seawater_visc)
        call get_particle_density(mesh,Nn,state(:,idetc),state(:,idetN),state(:,idetsi),state(:,idetcal),rho_particle) ! rho_particle = density of particle class 1       
 
        rho_det1(1:Nn)=rho_particle ! store in array to write as diagnostic
@@ -3618,7 +3618,7 @@ end subroutine get_particle_density
 ! based on Cram et al. (2018)
 ! https://bitbucket.org/ohnoplus/ballasted-sinking/src/master/tools/waterviscosity.m
 !===============================================================================
-subroutine get_seawater_viscosity(mesh,Nn,Temp,seawater_visc)
+subroutine get_seawater_viscosity(mesh,Nn,Temp,Salt,seawater_visc)
 
   use recom_config
   use g_PARSUP
@@ -3629,13 +3629,28 @@ subroutine get_seawater_viscosity(mesh,Nn,Temp,seawater_visc)
   type(t_mesh), intent(in), target  :: mesh
   integer, intent(in)                                     :: Nn !< Total number of nodes in the vertical
   real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: Temp !< [degrees C] Ocean temperature
+  real(kind=8),dimension(mesh%nl-1)        ,intent(in)    :: Salt !< [g/kg or n.d.] Ocean salinity
 
   real(kind=8),dimension(mesh%nl-1)                       :: seawater_visc !<[kg m-1 s-1] Ocean viscosity
+  real(kind=8),dimension(1)                               :: A,B,mu_w
   integer                                                 :: k
 
   seawater_visc=0.0
   do k = one,Nn
-     seawater_visc(k) = 2.414e-5*(10.0**(248.8/(Temp(k)+133.0)))
+     ! Eq from Sharaway 2010
+     ! validity: 
+     !  0<temp<180°C
+     !  0<salt<0.15 kg/kg
+     ! Note: because salinity is expercted to be in kg/kg, use conversion factor
+     ! 0.001 below!
+     A(1) = 1.541 + 1.998*0.01*Temp(k) - 9.52*1e-5*Temp(k)*Temp(k)
+     B(1) = 7.974 - 7.561*0.01*Temp(k) + 4.724*1e-4*Temp(k)*Temp(k)
+     mu_w(1) = 4.2844*1.0e-5 + (1.0/(0.157*(Temp(k)+64.993)*(Temp(k)+64.993)-91.296))
+     seawater_visc(k) = mu_w(1) * (1.0 + A(1)*Salt(k)*0.001 + B(1)*Salt(k)*0.001*Salt(k)*0.001)
+     !seawater_visc(k) = 1.0e-3*(1.0+1.551*0.01*(Temp(k)-20.0)**(-1.572)) ! according to
+     !Schoof 2001, this equation is valid for temp between 0-100 deg C
+     !seawater_visc(k) = 2.414e-5*(10.0**(248.8/(Temp(k)+133.0))) ! according to
+     !Schoof2001, this equation is valid for temp between 100-400 deg C
   end do
 
 end subroutine get_seawater_viscosity
