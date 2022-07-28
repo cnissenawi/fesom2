@@ -603,7 +603,7 @@ use REcoM_ciso
             write (id_string, "(I4)") id
             write(*,*) 'initializing '//trim(i_string)//'th tracer with ID='//trim(id_string)
          end if
-   CASE (1023:1028)
+   CASE (1023:1030) ! CN: add two tracers for 3rd zoo
          tr_arr(:,:,i)=0.0_WP
         if (mype==0) then
             write (i_string,  "(I4)") i

@@ -310,7 +310,13 @@ end if
 !   endif
   endif
 
-
+  if (REcoM_Third_Zoo) then
+     tracer(:,:,31) = tiny            ! tracer 28 = Zoo3N
+     tracer(:,:,32) = tiny * Redfield  ! tracer 29 = Zoo3C 
+  endif
+  ! CN: Note that these hard-coded tracer numbers might be a problem when "ciso"
+  ! is true. To be optimized. Currently, the "ciso" option should only work for 
+  ! REcoM_Second_Zoo=False and REcoM_Third_Zoo=False.
 
 if (ciso) then
    tr_arr(:,:,27) = (1. + 0.001 * (2.3 - 0.06 * tr_arr(:,:,3))) * tr_arr(:,:,4) ! DIC_13, GLODAP2 > 500 m 

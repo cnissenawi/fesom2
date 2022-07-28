@@ -27,7 +27,8 @@ module recom_config
              idiac = 14, idchl = 15, idiasi = 16, idetsi = 17,   &
              isi = 18, ife = 19, iphycal = 20, idetcal = 21,     &
              ioxy= 22, izoo2n = 23, izoo2c =24, idetz2n = 25,   &
-             idetz2c = 26, idetz2si = 27, idetz2calc = 28    
+             idetz2c = 26, idetz2si = 27, idetz2calc = 28,      &
+             imiczoon = 29, imiczooc = 30    
 
   Integer :: ivphy = 1, ivdia = 2, ivdet = 3, ivdetsc = 4
 
@@ -57,6 +58,7 @@ module recom_config
   Logical                :: REcoM_Geider_limiter  = .false.              ! Decides what routine should be used to calculate limiters in sms
   Logical                :: REcoM_Grazing_Variable_Preference = .true.  ! Decides if grazing should have preference for phyN or DiaN
   Logical                :: REcoM_Second_Zoo      = .false.    ! Decides whether having macrozooplankton and second detritus or not
+  Logical                :: REcoM_Third_Zoo       = .false.    ! Decides whether having a third zooplankton (=microzoo)
   Logical                :: Grazing_detritus     = .false.    ! Decides grazing on detritus                            
   Logical                :: zoo2_fecal_loss     = .false.    ! Decides fecalloss for the second zooplankton            
   Logical                :: zoo2_initial_field     = .false.    ! Decides initialization of secondzoo        ! NOT CODED YET OG
@@ -92,7 +94,7 @@ module recom_config
                        VDet,          VDet_zoo2,     &
                        VPhy,                              VDia,                    &
                        allow_var_sinking,                 biostep,               REcoM_Geider_limiter,    &
-                       REcoM_Grazing_Variable_Preference, REcoM_Second_Zoo,      Grazing_detritus,        &
+                       REcoM_Grazing_Variable_Preference, REcoM_Second_Zoo,      REcoM_Third_Zoo, Grazing_detritus,        &
                        zoo2_fecal_loss,                   zoo2_initial_field,    het_resp_noredfield,     &
                        diatom_mucus,                      Graz_pref_new,                &
                        Diags      ,                       constant_CO2,            &
@@ -185,12 +187,25 @@ module recom_config
   Real(kind=8)                 :: sDiaNsq       = 0.d0
   Real(kind=8)                 :: pzPhy         = 1.0d0           ! Maximum nano-phytoplankton preference                                                                                           
   Real(kind=8)                 :: sPhyNsq       = 0.d0
+  Real(kind=8)                 :: pzMicZoo       = 1.0d0           ! Maximum nano-phytoplankton preference                 
+  Real(kind=8)                 :: sMicZooNsq     = 0.d0
   real(kind=8)                 :: tiny_het       = 1.d-5          ! for more stable computation of HetRespFlux (_plus). Value can be > tiny because HetRespFlux ~ hetC**2.
-  namelist /pazooplankton/ graz_max, epsilonr, res_het, Redfield, loss_het, pzDia, sDiaNsq, pzPhy, sPhyNsq, tiny_het
+!!!!------MICROZOO--------------                                                                                               
+
+  Real(kind=8)                 :: graz_max3      = 0.46d0           ! [mmol N/(m3 * day)] Maximum grazing loss parameter                                 \
+  Real(kind=8)                 :: epsilon3       = 0.35d0          ! [(mmol N)2/m6] Half saturation constant for grazing loss                           \
+  Real(kind=8)                 :: res_miczoo       = 0.01d0          ! [1/day]Respiration by heterotrophs and mortality (loss to detritus)            
+  Real(kind=8)                 :: loss_miczoo     = 0.01d0          ! [1/day]Temperature dependent N degradation of extracellular organic N (EON)       
+  Real(kind=8)                 :: pzDia3         = 0.5d0           ! Maximumdiatom preference                                                           
+  Real(kind=8)                 :: sDiaNsq3       = 0.d0
+  Real(kind=8)                 :: pzPhy3         = 1.0d0           ! Maximumnano-phytoplankton preference                                               
+  Real(kind=8)                 :: sPhyNsq3       = 0.d0
+
+  namelist /pazooplankton/ graz_max, epsilonr, res_het, Redfield, loss_het,pzDia, sDiaNsq, pzPhy, sPhyNsq, &
+                           pzMicZoo, sMicZooNsq, tiny_het, graz_max3, epsilon3, res_miczoo, loss_miczoo, pzDia3, &
+                           sDiaNsq3, pzPhy3, sPhyNsq3
 !-------------------------------------------------------------------------------                                   
-                                                                                                                         
-! Second Zooplankton                                                                                                                                                                                    
-                             
+! Second Zooplankton                                                                                                                                                                                                            
   Real(kind=8)                 :: graz_max2      = 0.1d0          ! [mmol N/(m3 * day)] Maximum grazing loss parameter                                                                                        
   Real(kind=8)                 :: epsilon2       = 0.0144d0          ! [(mmol N)2 /m6] Half saturation constant for grazing loss                                                                              
   Real(kind=8)                 :: res_zoo2       = 0.0107d0          ! [1/day] Respiration by heterotrophs and mortality (loss to detritus)                                                            
@@ -198,29 +213,32 @@ module recom_config
   Real(kind=8)                 :: loss_zoo2      = 0.003d0          ! [1/day] Temperature dependent N degradation of extracellular organic N
   Real(kind=8)                 :: fecal_rate_n      = 0.13d0                                                         
   Real(kind=8)                 :: fecal_rate_c      = 0.295d0                                                          
+  Real(kind=8)                 :: fecal_rate_n_mes   = 0.25d0          ! [1/day] Temperature dependent N degradation of extracellular organic N (EON)  
+  Real(kind=8)                 :: fecal_rate_c_mes   = 0.32d0          ! [1/day]Temperature dependent N degradation of ext\ 
   Real(kind=8)                 :: pzDia2         = 1.d0           ! Maximum diatom preference                                                                                                                 
   Real(kind=8)                 :: sDiaNsq2       = 0.d0
   Real(kind=8)                 :: pzPhy2         = 0.5d0           ! Maximum diatom preference                                                                                                                
   Real(kind=8)                 :: sPhyNsq2       = 0.d0
   Real(kind=8)                 :: pzHet          = 0.8d0           ! Maximum diatom preference                                                                                                               
   Real(kind=8)                 :: sHetNsq        = 0.d0
+  Real(kind=8)                 :: pzMicZoo2          = 0.8d0           ! Maximum diatom preference                       
+  Real(kind=8)                 :: sMicZooNsq2        = 0.d0
   Real(kind=8)                 :: t1_zoo2        = 28145.d0           ! Krill temp. function constant1                                                                                                       
   Real(kind=8)                 :: t2_zoo2        = 272.5d0          ! Krill temp. function constant2                                                                                                         
   Real(kind=8)                 :: t3_zoo2        = 105234.d0          ! Krill temp. function constant3                                                                                                      
   Real(kind=8)                 :: t4_zoo2        = 274.15d0          ! Krill temp. function constant3                                                                                              
-  namelist /pasecondzooplankton/ graz_max2, epsilon2, res_zoo2, & !recip_res_zoo2 &                                                                                                                         
-                                 loss_zoo2, fecal_rate_n, fecal_rate_c, pzDia2, pzPhy2, pzHet,        &
-                                 sDiaNsq2, sPhyNsq2, sHetNsq,            &
+  namelist /pasecondzooplankton/ graz_max2, epsilon2, res_zoo2, & 
+                                 loss_zoo2, fecal_rate_n, fecal_rate_c, fecal_rate_n_mes, fecal_rate_c_mes, pzDia2, pzPhy2, pzHet,        &
+                                 sDiaNsq2, sPhyNsq2, sHetNsq, pzMicZoo2, sMicZooNsq2,            &
                                  t1_zoo2, t2_zoo2, t3_zoo2, t4_zoo2
-!-------------------------------------------------------------------------------                                                                                                                          
-!! *** Detritus Grazing Params ***                                                                                                                                                                        
-  Real(kind=8)                 :: pzDet         = 1.d0           ! Maximum small detritus prefence by first zooplankton                                                                                   
+!-------------------------------------------------------------------------------                                                                                                                 ! *** Detritus Grazing Params ***                                                                                                                                                               
+  Real(kind=8)                 :: pzDet         = 1.d0           ! Maximum small detritus prefence by first zooplankton                                                                         
   Real(kind=8)                 :: sDetNsq       = 0.d0  
-  Real(kind=8)                 :: pzDetZ2       = 1.d0           ! Maximum large detritus preference by first zooplankton                                                                                 
+  Real(kind=8)                 :: pzDetZ2       = 1.d0           ! Maximum large detritus preference by first zooplankton                                                                       
   Real(kind=8)                 :: sDetZ2Nsq     = 0.d0
-  Real(kind=8)                 :: pzDet2         = 1.d0           ! Maximum small detritus prefence by second zooplankton                                                                                
+  Real(kind=8)                 :: pzDet2         = 1.d0           ! Maximum small detritus prefence by second zooplankton                                                                       
   Real(kind=8)                 :: sDetNsq2       = 0.d0  
-  Real(kind=8)                 :: pzDetZ22       = 1.d0           ! Maximum large detritus preference by second zooplankton                                                                              
+  Real(kind=8)                 :: pzDetZ22       = 1.d0           ! Maximum large detritus preference by second zooplankton                                                                     
   Real(kind=8)                 :: sDetZ2Nsq2     = 0.d0
   namelist /pagrazingdetritus/ pzDet, sDetNsq, pzDetZ2, sDetZ2Nsq, &
                                  pzDet2, sDetNsq2, pzDetZ22, sDetZ2Nsq2
@@ -254,10 +272,15 @@ module recom_config
   namelist /paphytoplankton_ChlA/ deg_Chl, deg_Chl_d
 !!------------------------------------------------------------------------------
 !! *** Detritus N ***
-  Real(kind=8)                 :: grazEff       = 0.4d0         ! [] Grazing efficiency (fraction of grazing flux into zooplankton pool) 
-  Real(kind=8)                 :: grazEff2      = 0.8d0         ! [] Grazing efficiency (fraction of grazing flux into second zooplankton pool)
-  Real(kind=8)                 :: reminN        = 0.165d0        ! [1/day] Temperature dependent remineralisation rate of detritus	
-  namelist /padetritus_N/ grazEff, grazEff2, reminN
+  Real(kind=8)                 :: gfin       = 0.3d0         ! [] Grazing efficiency (fraction of grazing flux into zooplankton pool) 
+  Real(kind=8)                 :: grazEff2   = 0.8d0         ! [] Grazing efficiency (fraction of grazing flux into second zooplankton pool)
+  Real(kind=8)                 :: gfin3      = 0.24d0         ! [] Grazing efficiency (fraction of grazing flux into microzooplankton pool)
+  Real(kind=8)                 :: reminN        = 0.165d0        ! [1/day] Temperature dependent remineralisation rate of detritus      
+  namelist /padetritus_N/ gfin, grazEff2, gfin3, reminN
+!  Real(kind=8)                 :: grazEff       = 0.4d0         ! [] Grazing efficiency (fraction of grazing flux into zooplankton pool) 
+!  Real(kind=8)                 :: grazEff2      = 0.8d0         ! [] Grazing efficiency (fraction of grazing flux into second zooplankton pool)
+!  Real(kind=8)                 :: reminN        = 0.165d0        ! [1/day] Temperature dependent remineralisation rate of detritus	
+!  namelist /padetritus_N/ grazEff, grazEff2, reminN
 !!------------------------------------------------------------------------------
 !! *** Detritus C ***
   Real(kind=8)                 :: reminC        = 0.15d0        ! [1/day] Temperature dependent remineralisation rate of detritus
@@ -266,11 +289,12 @@ module recom_config
 !!------------------------------------------------------------------------------
 !! *** Heterotrophs ***
   Real(kind=8)                 :: lossN_z       = 0.15d0
+  Real(kind=8)                 :: lossN_z3       = 0.15d0
   Real(kind=8)                 :: lossC_z       = 0.15d0
-  namelist /paheterotrophs/ lossN_z, lossC_z
+  Real(kind=8)                 :: lossC_z3       = 0.15d0
+  namelist /paheterotrophs/ lossN_z, lossN_z3, lossC_z, lossC_z3
 !!------------------------------------------------------------------------------
-! Second Zooplankton                                                                                                                                                                                        
-                          
+! Second Zooplankton                                                                                                                                                                            
   Real(kind=8)                 :: lossN_z2       = 0.02d0
   Real(kind=8)                 :: lossC_z2       = 0.02d0
   namelist /paseczooloss/ lossN_z2, lossC_z2
@@ -354,9 +378,15 @@ Module REcoM_declarations
   Real(kind=8)  :: rTref                  ! [1/K] Reciproque value of reference temp for Arrhenius function
   Real(kind=8)  :: rTloc                  ! [1/K] Reciproque of local ocean temp
   Real(kind=8)  :: arrFunc                ! []    Temp dependence of rates 
+  Real(kind=8)  :: q10_mic                ! []    Temp dependence of rates
+  Real(kind=8)  :: q10_mic_res
+  Real(kind=8)  :: q10_mes
+  Real(kind=8)  :: q10_mes_res
   Real(kind=8)  :: O2Func                 ! []    O2 dependency of organic matter remin 
 !  if (REcoM_Second_Zoo) then
-  Real(kind=8)  :: arrFuncZoo2           ! []    Temperature function for krill     
+  Real(kind=8)  :: arrFuncZoo2           ! []    Temperature function for krill    
+  Real(kind=8)  :: grazEff
+  Real(kind=8)  :: grazEff3 
 !  endif
   Real(kind=8)  :: reminSiT
 !-------------------------------------------------------------------------------
@@ -371,6 +401,7 @@ Module REcoM_declarations
   Real(kind=8)  :: recipQZoo                  ! [mmol C/mmol N]  Quota between heterotrophic C and N 
 !  if (REcoM_Second_Zoo) then
   Real(kind=8)  :: recipQZoo2                  ! [mmol C/mmol N]  Quota between second zoo  C and N                                                                                          
+  Real(kind=8)  :: recipQZoo3                  ! [mmol C/mmol N]  Quota between third zoo  C and N     
 !  endif
 !!! Grazing detritus Quotas for converting                                                                                                                                                                
   Real(kind=8)  :: recipDet                  ! [mmol C/mmol N]  Quota between second zoo  C and N                                                                                                         
@@ -417,22 +448,40 @@ Module REcoM_declarations
   Real(kind=8)  :: varpzPhy, fPhyN                  ! Part of Nano available for food
   Real(kind=8)  :: food, foodsq                     ! [(mmol N)2/m6]
   Real(kind=8)  :: grazingFlux_phy, grazingFlux_Dia ! [mmol N / (m3 * day)]
+  Real(kind=8)  :: grazingFlux_miczoo
   Real(kind=8)  :: grazingFlux
   Real(kind=8)  :: HetRespFlux                      ! Zooplankton respiration
   Real(kind=8)  :: HetLossFlux                      ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)
+  Real(kind=8)  :: DiaNsq3
+  Real(kind=8)  :: varpzdia3, fDiaN3                  ! Part of Diatoms available for food                             
+  Real(kind=8)  :: loss_hetfd
+  Real(kind=8)  :: PhyNsq3
+  Real(kind=8)  :: varpzPhy3, fPhyN3                  ! Part of Nano available for food                                    
+  Real(kind=8)  :: MicZooNsq
+  Real(kind=8)  :: varpzMicZoo, fMicZooN                  ! Part of Nano available for food     
+  Real(kind=8)  :: food3, foodsq3                     ! [(mmol N)2/m6]                                                        
+  Real(kind=8)  :: grazingFlux_phy3, grazingFlux_Dia3 ! [mmol N / (m3 * day)]                                                
+  Real(kind=8)  :: grazingFlux3
+  Real(kind=8)  :: MicZooRespFlux                      ! Zooplankton respiration                                              
+  Real(kind=8)  :: MicZooLossFlux                      ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)  
 !-------------------------------------------------------------------------------
 !  if (REcoM_Second_Zoo) then
 ! Second Zooplankton                                                                                           
        
   Real(kind=8)  :: DiaNsq2, PhyNsq2, HetNsq   
-  Real(kind=8)  :: varpzDia2, fDiaN2, varpzPhy2, fPhyN2, varpzHet, fHetN ! Part of Diatoms available for food   
+  Real(kind=8)  :: varpzDia2, fDiaN2, varpzPhy2, fPhyN2, varpzHet, fHetN ! Part of Diatoms available for food  
+  Real(kind=8)  :: MicZooNsq2
+  Real(kind=8)  :: varpzMicZoo2, fMicZooN2                  ! Part of Nano available for food  
   Real(kind=8)  :: food2, foodsq2                     ! [(mmol N)2/m6]                                   
   Real(kind=8)  :: grazingFlux_phy2, grazingFlux_Dia2, grazingFlux_het2 ! [mmol N / (m3 * day)]        
+  Real(kind=8)  :: grazingFlux_miczoo2
   Real(kind=8)  :: grazingFlux2
   Real(kind=8)  :: Zoo2RespFlux     ! Zooplankton respiration                   
   Real(kind=8)  :: Zoo2LossFlux    ! [(mmol N)2/(m6 * day)] Zooplankton mortality (quadratic loss)  
   Real(kind=8)  :: Zoo2fecalloss_n    ! [(mmol N)/(m3*day)] Second zoo fecal pellet                        
   Real(kind=8)  :: Zoo2fecalloss_c    ! [(mmol N)/(m3*day)] Second zoo fecal pellet                               
+  Real(kind=8)  :: Mesfecalloss_n    ! [(mmol N)/(m3*day)] Second zoo fecal pellet                                                                                                         
+  Real(kind=8)  :: Mesfecalloss_c    ! [(mmol N)/(m3*day)] Second zoo fecal pellet 
   Real(kind=8)  :: recip_res_zoo22 
 !  endif
 ! Grazing Detritus                                                                                                                                                                                       \
@@ -451,6 +500,7 @@ Module REcoM_declarations
   Real(kind=8)  :: calcification
   Real(kind=8)  :: calc_loss_agg
   Real(kind=8)  :: calc_loss_gra
+  Real(kind=8)  :: calc_loss_gra3
   Real(kind=8)  :: calc_diss
   Real(kind=8)  :: calc_loss_gra2 !zoo2 detritus
   Real(kind=8)  :: calc_diss2     !zoo2 detritus
@@ -583,6 +633,7 @@ Module REcoM_locVar
 !  if (REcoM_Second_Zoo) then
   Real(kind=8) :: res_zoo2_a, res_zoo2_f
   Real(kind=8) :: grazingFluxcarbonzoo2                      ! grazingfluxcarbon 
+  Real(kind=8) :: grazingFluxcarbon_mes                      ! grazingfluxcarbon
 !  endif
   Integer      :: currentCO2year
 	
